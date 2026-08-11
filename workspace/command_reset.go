@@ -23,7 +23,7 @@ func (c *Command) ResetFlags() {
 					changedField.SetBool(false)
 				}
 			}
-			f.Value.Set(f.DefValue)
+			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		})
 	}
@@ -39,7 +39,7 @@ func (c *Command) ResetFlags() {
 					changedField.SetBool(false)
 				}
 			}
-			f.Value.Set(f.DefValue)
+			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		})
 	}
