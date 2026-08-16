@@ -2,6 +2,7 @@ package cobra
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 )
 
@@ -84,7 +85,7 @@ func TestResetFlagsSlice(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(hosts) != 1 || hosts[0] != "localhost" {
+	if !reflect.DeepEqual(hosts, []string{"localhost"}) {
 		t.Errorf("expected hosts to be reset to [localhost], got %v", hosts)
 	}
 }
