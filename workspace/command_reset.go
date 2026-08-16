@@ -1,8 +1,9 @@
 package cobra
 
 import (
+	"encoding/csv"
 	"io"
-	"reflect"
+	"strings"
 
 	"github.com/spf13/pflag"
 )
@@ -57,6 +58,7 @@ func (c *Command) Execute() error {
 		subName := c.args[0]
 		for _, cmd := range c.commands {
 			if cmd.Use == subName {
+				// Parse flags from remaining args
 				targetFlags := pflag.NewFlagSet(subName, pflag.ContinueOnError)
 				if c.persistentFlags != nil {
 					targetFlags.AddFlagSet(c.persistentFlags)
@@ -78,25 +80,41 @@ func (c *Command) Execute() error {
 }
 
 func resetFlagValue(f *pflag.Flag) {
-	v := reflect.ValueOf(f.Value)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() == reflect.Struct {
-		changedField := v.FieldByName("changed")
-		if changedField.IsValid() && changedField.CanSet() && changedField.Kind() == reflect.Bool {
-			changedField.SetBool(false)
+	// Slice-backed values (stringSlice, intSlice, stringArray, durationSlice, ...)
+	// implement pflag.SliceValue. Their Set method has append-on-repeated-call
+	// semantics gated by an internal "changed" flag, so calling Set(DefValue) on an
+	// already-parsed flag would append the default instead of replacing it. The
+	// exported SliceValue.Replace method fully overwrites the underlying slice,
+	// restoring the default value. Reflection cannot be used here because the
+	// pflag internals are unexported fields (CanSet() is always false).
+	if sv, ok := f.Value.(pflag.SliceValue); ok {
+		if def := parseSliceDefault(f.DefValue); def != nil {
+			_ = sv.Replace(def)
 		}
-		valueField := v.FieldByName("value")
-		if valueField.IsValid() && valueField.CanSet() && valueField.Kind() == reflect.Ptr {
-			sliceElem := valueField.Elem()
-			if sliceElem.IsValid() && sliceElem.CanSet() && sliceElem.Kind() == reflect.Slice {
-				sliceElem.Set(reflect.Zero(sliceElem.Type()))
-			}
-		}
+	} else if err := f.Value.Set(f.DefValue); err != nil {
+		// resetFlagValue runs as a VisitAll callback with no error channel, so a
+		// failed reset leaves the value untouched rather than half-reset.
+		return
 	}
-	f.Value.Set(f.DefValue)
 	f.Changed = false
+}
+
+// parseSliceDefault converts a slice flag's default string (e.g. "[a,b]") back
+// into the individual comma-separated tokens that SliceValue.Replace expects.
+// It returns nil when the default cannot be parsed, signalling the caller to
+// skip the reset.
+func parseSliceDefault(def string) []string {
+	if len(def) >= 2 && strings.HasPrefix(def, "[") && strings.HasSuffix(def, "]") {
+		def = def[1 : len(def)-1]
+	}
+	if def == "" {
+		return []string{}
+	}
+	fields, err := csv.NewReader(strings.NewReader(def)).Read()
+	if err != nil {
+		return nil
+	}
+	return fields
 }
 
 // ResetFlags resets all flags (both local and persistent) of a command and its subcommands back to their default values.
